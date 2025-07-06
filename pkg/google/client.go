@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	EVENT_COMPLETED_PREFIX = ""
-	EVENT_DELETED_PREFIX   = "󰜺"
+	EVENT_COMPLETED_PREFIX = "✅"
+	EVENT_DELETED_PREFIX   = "❌"
 )
 
 // Client provides methods to interact with the Google Calendar API.
