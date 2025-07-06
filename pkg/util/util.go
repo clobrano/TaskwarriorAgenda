@@ -2,12 +2,19 @@ package util
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	googleclient "github.com/clobrano/TaskwarriorAgenda/pkg/google"
 	"github.com/clobrano/TaskwarriorAgenda/pkg/taskwarrior"
 	"google.golang.org/api/calendar/v3"
+)
+
+const (
+	NEEDS_UPDATE_DESCRIPTION = "description"
+	NEEDS_UPDATE_STATUS      = "status"
+	NEEDS_UPDATE_DUE         = "due"
 )
 
 // getDateRange return the range of date (from date, to date) in a list of Taskwarrior.Tasks
@@ -21,12 +28,12 @@ func GetDateRange(tasks []taskwarrior.Task) (fromDate time.Time, toDate time.Tim
 		}
 		if t.Due.Before(now) {
 			if fromDate.After(t.Due.Time) {
-				// Add 1 day buffer
+				// Start 1 day before
 				fromDate = t.Due.Time.Add(-24 * time.Hour)
 			}
 		} else {
 			if toDate.Before(t.Due.Time) {
-				// Add 1 day buffer
+				// End 1 day after
 				toDate = t.Due.Time.Add(24 * time.Hour)
 			}
 		}
@@ -35,34 +42,46 @@ func GetDateRange(tasks []taskwarrior.Task) (fromDate time.Time, toDate time.Tim
 }
 
 // EventNeedsUpdate returns true if the fields shared between a taskwarrior.Task and a calendar.Event differ
-func EventNeedsUpdate(task *taskwarrior.Task, event *calendar.Event) (bool, error) {
+func EventNeedsUpdate(task *taskwarrior.Task, event *calendar.Event) (bool, string, error) {
 	task.EventID = event.Id
 
 	// NOTE: calendar.Event's Summary might have a leading "check" sign () if the task was completed
-	originalDescription, summaryWithoutCheckmark, found := strings.Cut(event.Summary, googleclient.EVENT_COMPLETED_PREFIX)
+	originalSummary, summaryWithoutCheckmark, found := strings.Cut(event.Summary, googleclient.EVENT_COMPLETED_PREFIX)
 	if found {
+		originalSummary = strings.TrimSpace(originalSummary)
+		summaryWithoutCheckmark = strings.TrimSpace(summaryWithoutCheckmark)
+
 		// events with checkmark in their description are expected to match completed tasks only
 		if task.Status == taskwarrior.PENDING {
-			return true, nil
+			return true, NEEDS_UPDATE_DESCRIPTION, nil
 		}
 		if task.Description != summaryWithoutCheckmark {
-			return true, nil
+			log.Printf("task: '%s', event: '%s'  needs update\n", task.Description, summaryWithoutCheckmark)
+			return true, NEEDS_UPDATE_DESCRIPTION, nil
 		}
+		return false, "", nil
 	}
 
-	if task.Description != originalDescription {
-		return true, nil
+	if task.Description != event.Summary {
+		log.Printf("task: '%s', event: '%s'  needs update\n", task.Description, originalSummary)
+		return true, NEEDS_UPDATE_DESCRIPTION, nil
 	}
 
 	eventTime, err := time.Parse(time.RFC3339, event.Start.DateTime)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 
 	if eventTime.After(task.Due.Time) || eventTime.Before(task.Due.Time) {
-		return true, nil
+		log.Printf("task: %s:%s:%s, event: %s:%s time needs update\n", task.Description, task.UUID, task.Status, event.Summary, event.Description)
+		return true, NEEDS_UPDATE_DUE, nil
 	}
-	return false, nil
+
+	if !strings.Contains(event.Description, fmt.Sprintf("status: %s", task.Status)) {
+		log.Printf("task: %s:%s:%s, event: %s:%s status needs update\n", task.Description, task.UUID, task.Status, event.Summary, event.Description)
+		return true, NEEDS_UPDATE_STATUS, nil
+	}
+	return false, "", nil
 }
 
 func ConvertTaskwarriorTaskToCalendarEvent(task *taskwarrior.Task) (*calendar.Event, error) {
@@ -93,7 +112,7 @@ func ConvertTaskwarriorTaskToCalendarEvent(task *taskwarrior.Task) (*calendar.Ev
 	}
 
 	defaultDuration := 30 * time.Minute
-	eventDescription := fmt.Sprintf("Taskwarrior uuid: %s, status: %s", task.UUID, eventStatus)
+	eventDescription := fmt.Sprintf("Taskwarrior uuid: %s, status: %s", task.UUID, task.Status)
 
 	event := &calendar.Event{
 		Id:      task.EventID,

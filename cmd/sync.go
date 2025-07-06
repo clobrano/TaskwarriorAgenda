@@ -73,14 +73,16 @@ var syncCmd = &cobra.Command{
 					}
 
 					foundMatchingEvent = true
-					got, err := util.EventNeedsUpdate(&t, e)
+					got, what, err := util.EventNeedsUpdate(&t, e)
 					if err != nil {
 						log.Printf("could not compare task uuid %s with its calendar event: error %v", t.UUID, err)
 					} else if got {
+						log.Printf("task:%s needs update %s", t.Description, what)
 						needUpdate = append(needUpdate, t)
 					}
 				}
 				if !foundMatchingEvent {
+					log.Printf("task:%s needs created", t.Description)
 					needCreation = append(needCreation, t)
 				}
 			}
