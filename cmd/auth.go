@@ -14,7 +14,7 @@ import (
 var authCmd = &cobra.Command{
 	Use:   "auth",
 	Short: "Authenticate with Google Calendar API",
-	Long: `Authenticates GoPortal with your Google account to access Google Calendar.
+	Long: `Authenticates with your Google account to access Google Calendar.
 This command will guide you through the OAuth 2.0 process to get the necessary
 tokens for API access.`,
 	Run: func(cmd *cobra.Command, args []string) {

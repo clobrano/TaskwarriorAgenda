@@ -25,7 +25,7 @@ const (
 	ClientSecretsFile = "credentials.json"
 
 	// TokenFile is the path where the user's obtained OAuth token (access_token + refresh_token)
-	// will be stored. It's recommended to place this in a user's config directory (e.g., ~/.config/goportal/token.json)
+	// will be stored. It's recommended to place this in a user's config directory (e.g., ~/.config/taskwarrior-agenda/token.json)
 	// For simplicity in this example, it's relative to the execution directory.
 	TokenFile = "token.json"
 
@@ -179,7 +179,7 @@ func getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) {
 	// Construct the authorization URL
 	// AccessTypeOffline is crucial to ensure a refresh token is returned.
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
-	fmt.Printf("Please open the following URL in your browser to authorize GoPortal:\n%s\n", authURL)
+	fmt.Printf("Please open the following URL in your browser to authorize TaskwarriorAgenda:\n%s\n", authURL)
 
 	// Attempt to open the URL in the default browser (platform-dependent)
 	// You might need a more robust cross-platform solution for this.
