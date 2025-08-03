@@ -13,7 +13,7 @@ func NewClient() *Client {
 }
 
 func (c *Client) GetTasks(filter []string) ([]Task, error) {
-	args := append(filter, "export")
+	args := append(filter, "export", "rc.hooks=0")
 	cmd := exec.Command("task", args...)
 
 	output, err := cmd.Output()
