@@ -27,7 +27,7 @@ tokens for API access.`,
 			log.Fatalf("Authentication failed: %v", err)
 		}
 		log.Printf("Authentication successful! Token saved to %s", auth.TokenFile)
-		log.Println("You can now run 'goportal sync' to synchronize your tasks.")
+		log.Println("You can now run 'TaskwarriorAgenda sync' to synchronize your tasks.")
 	},
 }
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -31,25 +32,27 @@ const (
 	// LocalhostAuthPort is the port that the local web server will listen on
 	// to capture the OAuth redirect. Choose a free port.
 	LocalhostAuthPort = "6789"
+
+	xdgAppName = "taskwarrior-agenda"
 )
 
 // GetConfig creates an oauth2.Config from the client secrets file and specified scopes.
 func GetConfig(scopes []string) (*oauth2.Config, error) {
-	b, err := os.ReadFile(ClientSecretsFile)
+	xdgConfigBase, err := getXdgHome()
 	if err != nil {
-		return nil, fmt.Errorf("unable to read client secret file %s: %w", ClientSecretsFile, err)
+		return nil, err
+	}
+
+	clientSecretsFile := filepath.Join(xdgConfigBase, ClientSecretsFile)
+	b, err := os.ReadFile(clientSecretsFile)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read client secret file %s: %w", clientSecretsFile, err)
 	}
 
 	config, err := google.ConfigFromJSON(b, scopes...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse client secret file to config: %w", err)
 	}
-
-	// --- CRITICAL CORRECTION HERE ---
-	// Ensure the RedirectURL always includes the port if it's a localhost redirect.
-	// The `google.ConfigFromJSON` will read whatever is in `credentials.json`.
-	// If credentials.json contains "urn:ietf:wg:oauth:2.0:oob", we explicitly set the localhost URL.
-	// If it contains a localhost URL *without* the port, we must fix it here.
 
 	parsedURL, parseErr := url.Parse(config.RedirectURL)
 	if parseErr != nil {
@@ -77,19 +80,8 @@ func GetConfig(scopes []string) (*oauth2.Config, error) {
 		// If it's not localhost and not OOB, log a warning if it's not what we expect
 		log.Printf("Warning: Configured RedirectURL in credentials.json is not a localhost callback or OOB: %s. Ensure this is correct for your setup.", config.RedirectURL)
 	}
-	// --- END CRITICAL CORRECTION ---
 
 	return config, nil
-}
-
-// isLocalhostRedirect checks if the redirect URL is a localhost address.
-func isLocalhostRedirect(urlStr string) bool {
-	u := net.ParseIP(urlStr)
-	if u.IsLoopback() || u.String() == "localhost" {
-		return true
-	}
-	// Also check for "http://localhost" or "http://127.0.0.1" in string form
-	return len(urlStr) >= 16 && (urlStr[7:16] == "localhost" || urlStr[7:15] == "127.0.0.1")
 }
 
 // GetClient retrieves an authenticated *http.Client.
@@ -101,15 +93,21 @@ func GetClient(ctx context.Context, scopes []string) (*http.Client, error) {
 		return nil, err
 	}
 
-	tok, err := tokenFromFile(TokenFile)
+	xdgConfigBase, err := getXdgHome()
+	if err != nil {
+		return nil, err
+	}
+
+	tokenFile := filepath.Join(xdgConfigBase, TokenFile)
+	tok, err := tokenFromFile(tokenFile)
 	if err != nil {
 		// No existing token, perform the full OAuth flow
-		log.Printf("No existing token found at %s. Initiating web authorization flow...", TokenFile)
+		log.Printf("No existing token found at %s. Initiating web authorization flow...", tokenFile)
 		tok, err = getTokenFromWeb(config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get token from web: %w", err)
 		}
-		saveToken(TokenFile, tok) // Save the newly obtained token
+		saveToken(tokenFile, tok) // Save the newly obtained token
 	}
 
 	// config.Client creates an HTTP client that automatically handles token refreshing.
@@ -134,7 +132,7 @@ func GetClient(ctx context.Context, scopes []string) (*http.Client, error) {
 		// is the most common indication of a refresh.
 		if currentTok.AccessToken != tok.AccessToken || currentTok.RefreshToken != tok.RefreshToken {
 			log.Println("Token was refreshed or updated. Saving new token to file.")
-			saveToken(TokenFile, currentTok)
+			saveToken(tokenFile, currentTok)
 		}
 	}()
 
@@ -269,4 +267,12 @@ func GetCalendarService(ctx context.Context) (*calendar.Service, error) {
 		return nil, fmt.Errorf("unable to retrieve Google Calendar service: %w", err)
 	}
 	return srv, nil
+}
+
+func getXdgHome() (string, error) {
+	xdgHome, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(xdgHome, ".config", xdgAppName), nil
 }

@@ -46,9 +46,9 @@ func (ct CustomTime) MarshalJSON() ([]byte, error) {
 type Task struct {
 	UUID        string      `json:"uuid"`
 	Description string      `json:"description"`
-	Due         *CustomTime `json:"due"`
-	Scheduled   *CustomTime `json:"scheduled"`
+	Due         *CustomTime `json:"due,omitempty"`
+	Scheduled   *CustomTime `json:"scheduled,omitempty"`
 	Status      string      `json:"status"`
 	// Only to update corresponding calendar event
-	EventID string `json:"event_id"`
+	EventID string `json:"event_id,omitempty"`
 }

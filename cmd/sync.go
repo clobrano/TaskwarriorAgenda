@@ -32,7 +32,6 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			log.Fatalf("Unable to get Google Calendar service: %v", err)
 		}
-
 		t := taskwarrior.NewClient()
 		//filter := []string{"+PENDING", "+rem"}
 		tasks, err := t.GetTasks(taskWarriorFilter)
@@ -40,25 +39,21 @@ var syncCmd = &cobra.Command{
 			log.Println(err)
 			return
 		}
-
 		if len(tasks) == 0 {
 			log.Printf("Filter %v returned 0 taskwarrior tasks", taskWarriorFilter)
 			return
 		} else {
 			log.Printf("Filter %v returned %d taskwarrior tasks", taskWarriorFilter, len(tasks))
 		}
-
 		c := client.NewClient(calendarService)
 		calendarID, err := c.GetCalendarIDByName(ctx, calendarName)
 		if err != nil {
 			log.Printf("could not get Calendar ID from calendar name '%s': %v\n", "To-do", err)
 			return
 		}
-
 		fromDate, toDate := util.GetDateRange(tasks)
 		log.Printf("Getting data from %v (year %d) to %v\n", fromDate, fromDate.Year(), toDate)
 		events, err := c.ListEvents(ctx, calendarID, fromDate, toDate, 0)
-
 		needUpdate := []taskwarrior.Task{}
 		needCreation := []taskwarrior.Task{}
 		if err != nil {
@@ -71,7 +66,6 @@ var syncCmd = &cobra.Command{
 					if !strings.Contains(e.Description, t.UUID) {
 						continue
 					}
-
 					foundMatchingEvent = true
 					got, what, err := util.EventNeedsUpdate(&t, e)
 					if err != nil {
@@ -87,7 +81,6 @@ var syncCmd = &cobra.Command{
 				}
 			}
 		}
-
 		for _, t := range needUpdate {
 			if newEvent, err := util.ConvertTaskwarriorTaskToCalendarEvent(&t); err != nil {
 				log.Printf("could not convert Task '%s' into event: %v\n", t.Description, err)
@@ -98,7 +91,6 @@ var syncCmd = &cobra.Command{
 				}
 			}
 		}
-
 		for _, t := range needCreation {
 			if newEvent, err := util.ConvertTaskwarriorTaskToCalendarEvent(&t); err != nil {
 				log.Printf("could not convert Task '%s' into event: %v\n", t.Description, err)
