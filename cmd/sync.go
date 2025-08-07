@@ -1,123 +1,119 @@
-/*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
-	"context"
+	"fmt"
 	"log"
 	"strings"
+	"time"
 
-	"github.com/clobrano/TaskwarriorAgenda/pkg/auth"
-	client "github.com/clobrano/TaskwarriorAgenda/pkg/google"
+	"github.com/clobrano/TaskwarriorAgenda/pkg/google"
+	"github.com/clobrano/TaskwarriorAgenda/pkg/model"
+	"github.com/clobrano/TaskwarriorAgenda/pkg/orgmode"
 	"github.com/clobrano/TaskwarriorAgenda/pkg/taskwarrior"
 	"github.com/clobrano/TaskwarriorAgenda/pkg/util"
 	"github.com/spf13/cobra"
-)
-
-var (
-	calendarName      string
-	taskWarriorFilter []string
+	"github.com/spf13/viper"
 )
 
 // syncCmd represents the sync command
 var syncCmd = &cobra.Command{
 	Use:   "sync",
-	Short: "Synchronize tasks between Taskwarrior and Google calendar",
-	Long:  `TODO`,
+	Short: "Synchronize tasks to Google calendar",
+	Long:  `Synchronize tasks from Taskwarrior or an Org-mode file to Google calendar.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		ctx := context.Background()
-		log.Println("Initializing Google Calendar service...")
-		calendarService, err := auth.GetCalendarService(ctx)
-		if err != nil {
-			log.Fatalf("Unable to get Google Calendar service: %v", err)
-		}
-		t := taskwarrior.NewClient()
-		//filter := []string{"+PENDING", "+rem"}
-		tasks, err := t.GetTasks(taskWarriorFilter)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		if len(tasks) == 0 {
-			log.Printf("Filter %v returned 0 taskwarrior tasks", taskWarriorFilter)
-			return
-		} else {
-			log.Printf("Filter %v returned %d taskwarrior tasks", taskWarriorFilter, len(tasks))
-		}
-		c := client.NewClient(calendarService)
-		calendarID, err := c.GetCalendarIDByName(ctx, calendarName)
-		if err != nil {
-			log.Printf("could not get Calendar ID from calendar name '%s': %v\n", "To-do", err)
-			return
-		}
-		fromDate, toDate := util.GetDateRange(tasks)
-		log.Printf("Getting data from %v (year %d) to %v\n", fromDate, fromDate.Year(), toDate)
-		events, err := c.ListEvents(ctx, calendarID, fromDate, toDate, 0)
-		needUpdate := []taskwarrior.Task{}
-		needCreation := []taskwarrior.Task{}
-		if err != nil {
-			log.Printf("could not get events: error %v\n", err)
-		} else {
-			log.Printf("Application finished successfully. Found %d events\n", len(events))
-			for _, t := range tasks {
-				foundMatchingEvent := false
-				for _, e := range events {
-					if !strings.Contains(e.Description, t.UUID) {
-						continue
-					}
-					foundMatchingEvent = true
-					got, what, err := util.EventNeedsUpdate(&t, e)
-					if err != nil {
-						log.Printf("could not compare task uuid %s with its calendar event: error %v", t.UUID, err)
-					} else if got {
-						log.Printf("task:%s needs update %s", t.Description, what)
-						needUpdate = append(needUpdate, t)
-					}
-				}
-				if !foundMatchingEvent {
-					log.Printf("task:%s needs created", t.Description)
-					needCreation = append(needCreation, t)
-				}
+		calendar, _ := cmd.Flags().GetString("calendar")
+		source, _ := cmd.Flags().GetString("source")
+		filter, _ := cmd.Flags().GetString("filter")
+
+		var tasks []model.Task
+		var err error
+
+		switch source {
+		case "orgmode":
+			// Get the list of Org-mode files from the configuration
+			files := viper.GetStringSlice("orgmode_files")
+			if len(files) == 0 {
+				log.Fatal("Error: no Org-mode files specified in the configuration file")
 			}
-		}
-		for _, t := range needUpdate {
-			if newEvent, err := util.ConvertTaskwarriorTaskToCalendarEvent(&t); err != nil {
-				log.Printf("could not convert Task '%s' into event: %v\n", t.Description, err)
-			} else {
-				err = c.UpdateEvent(ctx, calendarID, newEvent)
-				if err != nil {
-					log.Printf("could not update event for task '%s': %v\n", t.Description, err)
-				}
+			tasks, err = orgmode.ParseFiles(files)
+			if err != nil {
+				log.Fatalf("Error parsing Org-mode files: %v", err)
 			}
-		}
-		for _, t := range needCreation {
-			if newEvent, err := util.ConvertTaskwarriorTaskToCalendarEvent(&t); err != nil {
-				log.Printf("could not convert Task '%s' into event: %v\n", t.Description, err)
-			} else {
-				err = c.CreateEvent(ctx, calendarID, newEvent)
-				if err != nil {
-					log.Printf("could not create Event '%s': %v\n", t.Description, err)
-				}
+			if filter != "" {
+				tasks = orgmode.FilterTasks(tasks, filter)
 			}
+		case "taskwarrior":
+			client := taskwarrior.NewClient()
+			twTasks, err := client.GetTasks(strings.Split(filter, " "))
+			if err != nil {
+				log.Fatalf("Error getting tasks from Taskwarrior: %v", err)
+			}
+			// Convert taskwarrior.Task to model.Task
+			for _, t := range twTasks {
+				var deadline time.Time
+				if t.Due != nil {
+					deadline = t.Due.Time
+				}
+				tasks = append(tasks, model.Task{
+					ID:          t.UUID,
+					Description: t.Description,
+					Deadline:    deadline,
+					Status:      t.Status,
+					Source:      "taskwarrior",
+				})
+			}
+		default:
+			log.Fatalf("Error: invalid source '%s'. Please use 'taskwarrior' or 'orgmode'", source)
 		}
+
+		sync(calendar, tasks)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(syncCmd)
+	syncCmd.Flags().String("calendar", "Tasks", "Google Calendar name to sync with")
+	syncCmd.Flags().String("source", "", "Source of tasks (taskwarrior or orgmode)")
+	syncCmd.MarkFlagRequired("source")
+	syncCmd.Flags().String("filter", "", "Filter to apply to the tasks")
+}
 
-	// Here you will define your flags and configuration settings.
+func sync(calendarName string, tasks []model.Task) {
+	client, err := google.NewClient(calendarName)
+	if err != nil {
+		log.Fatalf("Error creating Google Calendar client: %v", err)
+	}
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// syncCmd.PersistentFlags().String("foo", "", "A help for foo")
+	// Create a map of task IDs for efficient lookup
+	taskMap := make(map[string]bool)
+	for _, task := range tasks {
+		taskMap[task.ID] = true
+	}
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// syncCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	// Fetch recent events to check for orphans
+	events, err := client.ListEvents(time.Now().Add(-30 * 24 * time.Hour))
+	if err != nil {
+		log.Fatalf("Error fetching calendar events: %v", err)
+	}
 
-	syncCmd.Flags().StringVarP(&calendarName, "calendar", "c", "", "Name of the calendar to operate on")
-	syncCmd.MarkFlagRequired("calendar")
-	syncCmd.Flags().StringArrayVarP(&taskWarriorFilter, "filter", "f", []string{"+PENDING"}, "filter to select taskwarrior tasks to syncronize")
+	// Delete orphaned events
+	for _, event := range events {
+		taskID, found := util.GetTaskIDFromEventDescription(event.Description)
+		if found && !taskMap[taskID] {
+			log.Printf("Deleting orphaned event for task '%s' ID %s", event.Description, taskID)
+			err := client.DeleteEvent(event.Id)
+			if err != nil {
+				log.Printf("Error deleting event: %v", err)
+			}
+		}
+	}
+
+	// Sync current tasks
+	for _, task := range tasks {
+		fmt.Printf("Syncing task: '%s', uuid: %s, due: %s\n", task.Description, task.ID, task.Deadline)
+		_, err := client.SyncEvent(task)
+		if err != nil {
+			fmt.Printf("Error syncing event for task %s: %v\n", task.Description, err)
+		}
+	}
 }
