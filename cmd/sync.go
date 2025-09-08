@@ -90,20 +90,29 @@ func sync(calendarName string, tasks []model.Task) {
 		taskMap[task.ID] = true
 	}
 
-	// Fetch recent events to check for orphans
-	events, err := client.ListEvents(time.Now().Add(-30 * 24 * time.Hour))
-	if err != nil {
-		log.Fatalf("Error fetching calendar events: %v", err)
-	}
+	// TODO: improve orphaned events management. For now it is disabled
+	// the problem is that looking for all the events will take more and more
+	// time in the future, since we'll have more and more events in history.
+	// The solution is to look only in Orgmode.md not in Orgmode_archive.md. However,
+	// as of today implementation, removing the latter from the watch list, will make a
+	// bunch of events form the Calendar "orphaned" and so deleted.
 
-	// Delete orphaned events
-	for _, event := range events {
-		taskID, found := util.GetTaskIDFromEventDescription(event.Description)
-		if found && !taskMap[taskID] {
-			log.Printf("Deleting orphaned event for task '%s' ID %s", event.Description, taskID)
-			err := client.DeleteEvent(event.Id)
-			if err != nil {
-				log.Printf("Error deleting event: %v", err)
+	if false {
+		// Fetch recent events to check for orphans
+		events, err := client.ListEvents(time.Now().Add(-30 * 24 * time.Hour))
+		if err != nil {
+			log.Fatalf("Error fetching calendar events: %v", err)
+		}
+
+		// Delete orphaned events
+		for _, event := range events {
+			taskID, found := util.GetTaskIDFromEventDescription(event.Description)
+			if found && !taskMap[taskID] {
+				log.Printf("Deleting orphaned event for task '%s' ID %s", event.Description, taskID)
+				err := client.DeleteEvent(event.Id)
+				if err != nil {
+					log.Printf("Error deleting event: %v", err)
+				}
 			}
 		}
 	}
