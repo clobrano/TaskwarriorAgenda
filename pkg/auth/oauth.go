@@ -38,7 +38,7 @@ const (
 
 // GetConfig creates an oauth2.Config from the client secrets file and specified scopes.
 func GetConfig(scopes []string) (*oauth2.Config, error) {
-	xdgConfigBase, err := getXdgHome()
+	xdgConfigBase, err := GetXdgHome()
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func GetClient(ctx context.Context, scopes []string) (*http.Client, error) {
 		return nil, err
 	}
 
-	xdgConfigBase, err := getXdgHome()
+	xdgConfigBase, err := GetXdgHome()
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +269,7 @@ func GetCalendarService(ctx context.Context) (*calendar.Service, error) {
 	return srv, nil
 }
 
-func getXdgHome() (string, error) {
+func GetXdgHome() (string, error) {
 	xdgHome, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
